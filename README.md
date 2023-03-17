@@ -5,8 +5,8 @@ A LiveSplit autosplitter for the demo version of Pole.
 - Auto start
 - Auto split points:
   - "Thank You" message appearing (run end)
+  - Chapter complete
 
 # TODO
  - Auto split point:
-   - Chapter complete
    - Enter Boss
