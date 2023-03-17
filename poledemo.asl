@@ -1,12 +1,15 @@
 state("PoleDemo-Win64-Shipping"){
     // World.OwningGameInstance.LocalPlayers[0].PlayerController.Character.PoleStates
-    int poleState: 0x3A13160, 0x170, 0x38, 0x0, 0x30, 0x280, 0x6A0;
+    byte poleState: 0x3A13160, 0x170, 0x38, 0x0, 0x30, 0x280, 0x6A0;
 
     // World.OwningGameInstance.LocalPlayers[0].PlayerController.Character.HubPointManager.PointWithPoleMan.FirstPoint
     bool isFirstLevelSelected: 0x3A13160, 0x170, 0x38, 0x0, 0x30, 0x280, 0x6A8, 0x280, 0x2E8;
 
     // World.OwningGameInstance.StoryUMG.CurrentStoryLineData.ChapterID
     int chapterID: 0x3A13160, 0x170, 0x380, 0x4A0;
+
+    // World.OwningGameInstance.CurrentLevelProgress
+    byte currentLevelProgress: 0x3A13160, 0x170, 0x448;
 }
 
 startup
@@ -14,6 +17,8 @@ startup
     vars.Log = (Action<object>)((output) => print("[Pole ASL] " + output));
     vars.POLE_DOWN = 0x03;
     vars.POLE_MOVING = 0x07;
+
+    settings.Add("split_chapter", true, "Split on chapter complete");
 }
 
 init
@@ -33,17 +38,33 @@ update
             current.selectedLevelInteracts = old.selectedLevelInteracts;
         }
     }
+
+    if (current.currentLevelProgress != old.currentLevelProgress) {
+        vars.Log("CurrentLevelProgress: " + current.currentLevelProgress.ToString());
+    }
 }
 
 start
 {
-    return current.selectedLevelInteracts == 2 && 
-           old.selectedLevelInteracts == 1 && 
-           current.isFirstLevelSelected;
+    if(current.selectedLevelInteracts == 2 && 
+        old.selectedLevelInteracts == 1 && 
+        current.isFirstLevelSelected
+    ) {
+        current.selectedLevelInteracts = 0;
+        return true;
+    }
 }
 
-split {
+split 
+{
     if (current.chapterID != old.chapterID && current.chapterID == 1000) {
         return true;
+    }
+
+    if (
+        (current.currentLevelProgress == 14 || current.currentLevelProgress == 16) && 
+        old.currentLevelProgress == 1
+    ) {
+        return settings["split_chapter"];
     }
 }
