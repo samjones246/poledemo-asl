@@ -17,10 +17,13 @@ state("PoleDemo-Win64-Shipping"){
 
 startup
 {
-    // vars.Log = (Action<object>)((output) => print("[Pole ASL] " + output));
-    vars.EndTriggers = new List<string> {"TutorialLevelEndingManager", "LevelEndingDoor"};
+    vars.Log = (Action<object>)((output) => print("[Pole ASL] " + output));
     vars.STORY_LEVEL = "StoryLevel";
-    vars.DYE_DUNES = "PaintDesertLevel";
+    vars.LevelNames = new List<string> {
+        "TutorialLevel",
+        "Desert_SideLevel_2",
+        "Desert_SideLevel_3",
+    };
 
     settings.Add("split_chapter", true, "Split on chapter complete");
     settings.Add("split_boss", true, "Split on entering boss room");
@@ -31,13 +34,32 @@ init
     vars.FNamePool = (IntPtr)(modules.First().BaseAddress + 0x38FB4C0);
     vars.GetNameFromFName = (Func<long, string>) ( longKey => {
         int key = (int)(longKey & uint.MaxValue);
+        int partial = (int)(longKey >> 32);
         int chunkOffset = key >> 16;
         int nameOffset = (ushort)key;
         IntPtr namePoolChunk = memory.ReadValue<IntPtr>((IntPtr)vars.FNamePool + (chunkOffset+2) * 0x8);
         Int16 nameEntry = game.ReadValue<Int16>((IntPtr)namePoolChunk + 2 * nameOffset);
         int nameLength = nameEntry >> 6;
-        return game.ReadString((IntPtr)namePoolChunk + 2 * nameOffset + 2, nameLength);
+        string output = game.ReadString((IntPtr)namePoolChunk + 2 * nameOffset + 2, nameLength);
+        return (partial == 0) ? output : output + "_" + partial.ToString();
     });
+
+    vars.EndingTriggered = new MemoryWatcherList
+    {
+        new MemoryWatcher<bool>(new DeepPointer(0x3A13160, 0x30, 0xA8, 0xE0, 0x2A2)) { Name = "TutorialLevel"},
+        new MemoryWatcher<bool>(new DeepPointer(0x3A13160, 0x30, 0xA8, 0xE8, 0x2A1)) { Name = "Desert_SideLevel_2"},
+        new MemoryWatcher<bool>(new DeepPointer(0x3A13160, 0x30, 0xA8, 0xF0, 0x2A1)) { Name = "Desert_SideLevel_3"},
+    };
+
+    vars.EndingManagerName = new MemoryWatcherList
+    {
+        new MemoryWatcher<int>(new DeepPointer(0x3A13160, 0x30, 0xA8, 0xE0, 0x18)) { Name = "TutorialLevel"},
+        new MemoryWatcher<int>(new DeepPointer(0x3A13160, 0x30, 0xA8, 0xE8, 0x18)) { Name = "Desert_SideLevel_2"},
+        new MemoryWatcher<int>(new DeepPointer(0x3A13160, 0x30, 0xA8, 0xF0, 0x18)) { Name = "Desert_SideLevel_3"},
+    };
+
+    var endingManagerNames = new List<int> {0x687F9, 0x67FDD};
+    vars.IsEndingManagerName = (Func<int, bool>) (name => endingManagerNames.Contains(name));
 
     old.otherActorName = "";
     old.worldName = "";
@@ -45,8 +67,25 @@ init
 
 update
 {
+    vars.EndingTriggered.UpdateAll(game);
+    vars.EndingManagerName.UpdateAll(game);
+    current.endingDoorTouched = false;
+    foreach (string level in vars.LevelNames) {
+        if (
+            vars.IsEndingManagerName(vars.EndingManagerName[level].Current) &&
+            vars.IsEndingManagerName(vars.EndingManagerName[level].Old) &&
+            vars.EndingTriggered[level].Current
+        ) {
+            current.endingDoorTouched = true;
+            // vars.Log("Ending Door Touched");
+            break;
+        }
+    }
     current.otherActorName = vars.GetNameFromFName(current.otherActorFName);
     current.worldName = vars.GetNameFromFName(current.worldFName);
+    // if (current.worldName != old.worldName) {
+    //     vars.Log("World: " + current.worldName);
+    // }
 }
 
 start
@@ -66,11 +105,12 @@ split
         return true;
     }
 
+    if (current.endingDoorTouched && !old.endingDoorTouched) {
+        return settings["split_chapter"];
+    }
+
     if (current.otherActorName != old.otherActorName) {
-        if (vars.EndTriggers.Contains(current.otherActorName) && current.worldName != vars.DYE_DUNES) {
-            return settings["split_chapter"];
-        }
-        if (current.otherActorName == "BossRoomOpener") {
+        if (current.otherActorName.StartsWith("BossRoomOpener")) {
             return settings["split_boss"];
         }
     }
