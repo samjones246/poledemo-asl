@@ -8,45 +8,52 @@ state("PoleDemo-Win64-Shipping"){
     // World.OwningGameInstance.StoryUMG.CurrentStoryLineData.ChapterID
     int chapterID: 0x3A13160, 0x170, 0x380, 0x4A0;
 
-    // World.OwningGameInstance.CurrentLevelProgress
-    byte currentLevelProgress: 0x3A13160, 0x170, 0x448;
-}
+    // World.OwningGameInstance.LocalPlayers[0].PlayerController.Character.OtherActor.Name
+    long otherActorFName:  0x3A13160, 0x170, 0x38, 0x0, 0x30, 0x280, 0x1780, 0x18;
 
-init 
-{
-     vars.inLevel = false;
-     vars.levelIndex = 0;
+    // World.Name
+    long worldFName: 0x3A13160, 0x18;
 }
 
 startup
 {
     // vars.Log = (Action<object>)((output) => print("[Pole ASL] " + output));
-    vars.Levels = new int[] {0x0E, 0x10, 0x01};
+    vars.EndTriggers = new List<string> {"TutorialLevelEndingManager", "LevelEndingDoor"};
+    vars.STORY_LEVEL = "StoryLevel";
+    vars.DYE_DUNES = "PaintDesertLevel";
 
     settings.Add("split_chapter", true, "Split on chapter complete");
+    settings.Add("split_boss", true, "Split on entering boss room");
+}
+
+init 
+{
+    vars.FNamePool = (IntPtr)(modules.First().BaseAddress + 0x38FB4C0);
+    vars.GetNameFromFName = (Func<long, string>) ( longKey => {
+        int key = (int)(longKey & uint.MaxValue);
+        int chunkOffset = key >> 16;
+        int nameOffset = (ushort)key;
+        IntPtr namePoolChunk = memory.ReadValue<IntPtr>((IntPtr)vars.FNamePool + (chunkOffset+2) * 0x8);
+        Int16 nameEntry = game.ReadValue<Int16>((IntPtr)namePoolChunk + 2 * nameOffset);
+        int nameLength = nameEntry >> 6;
+        return game.ReadString((IntPtr)namePoolChunk + 2 * nameOffset + 2, nameLength);
+    });
+
+    old.otherActorName = "";
+    old.worldName = "";
 }
 
 update
 {
-    if (current.currentLevelProgress != old.currentLevelProgress) {
-        // vars.Log("CurrentLevelProgress: " + current.currentLevelProgress.ToString());
-    }
-
-    if (current.selectedLevelInteracts == 2 && old.selectedLevelInteracts != 2) {
-        // vars.Log("InLevel: true");
-        vars.inLevel = true;
-    }
+    current.otherActorName = vars.GetNameFromFName(current.otherActorFName);
+    current.worldName = vars.GetNameFromFName(current.worldFName);
 }
 
 start
 {
-    if(current.selectedLevelInteracts >= 2 && 
-        old.selectedLevelInteracts < 2 && 
-        current.isFirstLevelSelected
-    ) {
-        vars.levelIndex = 1;
-        return true;
-    }
+    return current.selectedLevelInteracts >= 2 && 
+           old.selectedLevelInteracts < 2 && 
+           current.isFirstLevelSelected;
 }
 
 split 
@@ -54,21 +61,17 @@ split
     if (
         current.chapterID != old.chapterID && 
         current.chapterID == 1000 &&
-        vars.levelIndex == 4
+        current.worldName == vars.STORY_LEVEL 
     ) {
-        // vars.Log("Final split");
         return true;
     }
 
-    if (
-        (current.currentLevelProgress == 14 || current.currentLevelProgress == 16) && 
-        current.currentLevelProgress != old.currentLevelProgress &&
-        vars.inLevel
-    ) {
-        // vars.Log("Chapter Split");
-        // vars.Log("InLevel: False");
-        vars.inLevel = false;
-        vars.levelIndex += 1;
-        return settings["split_chapter"];
+    if (current.otherActorName != old.otherActorName) {
+        if (vars.EndTriggers.Contains(current.otherActorName) && current.worldName != vars.DYE_DUNES) {
+            return settings["split_chapter"];
+        }
+        if (current.otherActorName == "BossRoomOpener") {
+            return settings["split_boss"];
+        }
     }
 }
